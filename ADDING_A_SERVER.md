@@ -1,4 +1,4 @@
-# Adding the ack-reminder bot to a new server
+# Adding discord-mention-reminder-bot to a new server
 
 One running bot handles every server it's in, and in each server it only has access to the channels you choose. Adding a server means getting the bot invited, giving it access to those channels, then adding their channel and role IDs to `config.json`.
 
@@ -32,15 +32,15 @@ Turn on Developer Mode (User Settings → Advanced → Developer Mode), then rig
 
 ## 4. Add them to `config.json`
 
-Add the new channel to `channels` and the new role to `roles`. Your ID is already in `authors`.
+Add the new channel to `channels` and the new role to `roles`, next to the entries that are already there:
 
 ```json
 {
   "delay_hours": 24,
-  "channels": ["1556420306720002169", "<new channel ID>"],
-  "authors": ["877294362843815996"],
+  "channels": ["<existing channel ID>", "<new channel ID>"],
+  "authors": ["<your user ID>"],
   "roles": {
-    "1556420918996246528": {"name": "TA", "users": ["877294362843815996"]},
+    "<existing role ID>": {"name": "TA", "users": ["<user ID>"]},
     "<new role ID>": {"name": "<label>", "users": ["<user ID>", "..."]}
   }
 }
@@ -51,8 +51,8 @@ The bot pings only the users listed here, not everyone who actually has the role
 ## 5. Restart the bot and check the startup output
 
 ```sh
-cd ~/Courses/3090/discord-ack-reminder
-python3 ack_bot.py      # reads DISCORD_TOKEN=<token> from .env
+cd discord-mention-reminder-bot
+python3 reminder_bot.py      # reads DISCORD_TOKEN=<token> from .env
 ```
 
 You should see:
@@ -63,7 +63,4 @@ You should see:
 
 `WARNING: can't see channel <id>` means the channel ID is wrong or the bot is missing View Channel there.
 
-## Before real use
-
-- Set `"delay_hours": 24` and remove `check_minutes`, so it goes back to the default check every 5 minutes.
-- Run the bot on a machine that stays on. Messages posted while it's offline aren't tracked.
+If you shortened the timings for testing, set `"delay_hours": 24` and remove `check_minutes` before real use (see [README.md](README.md)).

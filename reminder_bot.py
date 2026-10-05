@@ -1,21 +1,12 @@
-"""Discord bot: remind people who haven't acknowledged a role-tagged message with 👍.
+"""discord-mention-reminder-bot: remind people who haven't acknowledged a role-tagged message with 👍.
 
 Watches a short list of channels. When a message there tags one of your configured
 roles, the bot waits `delay_hours`. It then replies once, pinging every user listed
 for those roles who hasn't reacted 👍 (any skin tone).
 
-Setup:
-  1. https://discord.com/developers/applications -> New Application -> Bot -> copy token.
-     No privileged intents needed.
-  2. Invite link (no server-wide permissions; access is granted per channel):
-     https://discord.com/oauth2/authorize?client_id=1556418843063226458&scope=bot&permissions=0
-     The admin then allows View Channel + Send Messages + Read Message History for the bot
-     in each watched channel. See ADDING_A_SERVER.md.
-  3. pip install -r requirements.txt
-  4. cp config.example.json config.json and fill in the IDs
-     (Developer Mode -> right-click a channel/role/user -> Copy ID).
-  5. Put DISCORD_TOKEN=<token> in .env (git-ignored), then:
-     python ack_bot.py
+Setup and server instructions: README.md and ADDING_A_SERVER.md.
+
+Usage: python3 reminder_bot.py [config file]   (default: config.json next to this file)
 
 config.json:
   delay_hours  hours to wait before reminding
@@ -28,6 +19,7 @@ config.json:
 import json
 import os
 import sqlite3
+import sys
 import time
 import traceback
 
@@ -47,8 +39,9 @@ if os.path.exists(ENV_PATH):
 if "DISCORD_TOKEN" not in os.environ:
     raise SystemExit(f"DISCORD_TOKEN not set: add a line 'DISCORD_TOKEN=<token>' to {ENV_PATH}")
 TOKEN = os.environ["DISCORD_TOKEN"]
-CONFIG_PATH = os.environ.get("ACK_CONFIG", os.path.join(HERE, "config.json"))
-DB_PATH = os.environ.get("ACK_DB", os.path.join(HERE, "acks.db"))
+# Config path: first command-line argument, else $REMINDER_CONFIG, else config.json next to this file.
+CONFIG_PATH = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("REMINDER_CONFIG", os.path.join(HERE, "config.json"))
+DB_PATH = os.environ.get("REMINDER_DB", os.path.join(HERE, "reminders.db"))
 
 with open(CONFIG_PATH) as f:
     config = json.load(f)

@@ -6,7 +6,9 @@ for those roles who hasn't reacted 👍 (any skin tone).
 
 Setup and server instructions: README.md and ADDING_A_SERVER.md.
 
-Usage: python3 reminder_bot.py [config file]   (default: config.json next to this file)
+Usage: python3 reminder_bot.py [config file] [--dry-run]
+  config file  default: config.json next to this file
+  --dry-run    track and print reminders without sending them; uses a throwaway in-memory database
 
 config.json:
   delay_hours  hours to wait before reminding
@@ -16,12 +18,13 @@ config.json:
   roles        {role_id: {"name": ..., "users": [user_id, ...]}}, your hand-kept member lists
 """
 
+import argparse
 import json
 import os
 import sqlite3
-import sys
 import time
 import traceback
+from datetime import datetime, timezone
 
 import discord
 from discord.ext import tasks
@@ -39,9 +42,17 @@ if os.path.exists(ENV_PATH):
 if "DISCORD_TOKEN" not in os.environ:
     raise SystemExit(f"DISCORD_TOKEN not set: add a line 'DISCORD_TOKEN=<token>' to {ENV_PATH}")
 TOKEN = os.environ["DISCORD_TOKEN"]
-# Config path: first command-line argument, else $REMINDER_CONFIG, else config.json next to this file.
-CONFIG_PATH = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("REMINDER_CONFIG", os.path.join(HERE, "config.json"))
-DB_PATH = os.environ.get("REMINDER_DB", os.path.join(HERE, "reminders.db"))
+parser = argparse.ArgumentParser(description="Remind people who haven't 👍'd a role-tagged message.")
+parser.add_argument("config", nargs="?",
+                    default=os.environ.get("REMINDER_CONFIG", os.path.join(HERE, "config.json")),
+                    help="config file (default: $REMINDER_CONFIG, else config.json next to this file)")
+parser.add_argument("--dry-run", action="store_true",
+                    help="print reminders instead of sending them; uses an in-memory database")
+args = parser.parse_args()
+CONFIG_PATH = args.config
+DRY_RUN = args.dry_run
+# A dry run must not mark reminders done in the real database.
+DB_PATH = ":memory:" if DRY_RUN else os.environ.get("REMINDER_DB", os.path.join(HERE, "reminders.db"))
 
 with open(CONFIG_PATH) as f:
     config = json.load(f)
@@ -79,17 +90,43 @@ def in_watched_channel(channel) -> bool:
 
 @client.event
 async def on_ready():
-    print(f"Logged in as {client.user} in {len(client.guilds)} server(s)")
+    print(f"Logged in as {client.user} in {len(client.guilds)} server(s)" + (" [DRY RUN: no messages will be sent]" if DRY_RUN else ""))
+    channels = []
     for cid in CHANNELS:
         ch = client.get_channel(cid)
         if ch:
             print(f"  watching #{ch.name} ({ch.guild.name})")
+            channels.append(ch)
         else:
             print(f"  WARNING: can't see channel {cid} (wrong ID, or bot lacks View Channel)")
+    await backfill(channels)
+
+
+backfilled = False
+
+
+async def backfill(channels):
+    """Track role-tagged messages posted in the last `delay_hours`, e.g. while the bot was offline."""
+    global backfilled
+    if backfilled:  # on_ready fires again after reconnects
+        return
+    backfilled = True
+    since = datetime.fromtimestamp(time.time() - DELAY_SECONDS, tz=timezone.utc)
+    # Active threads in watched channels count too (archived ones aren't scanned).
+    for ch in channels + [t for ch in channels for t in getattr(ch, "threads", [])]:
+        try:
+            async for msg in ch.history(after=since, limit=None):
+                track(msg)
+        except discord.Forbidden:
+            print(f"  WARNING: can't read history in #{ch.name} (bot lacks Read Message History)")
 
 
 @client.event
 async def on_message(msg: discord.Message):
+    track(msg)
+
+
+def track(msg: discord.Message):
     if msg.author == client.user or msg.guild is None or not in_watched_channel(msg.channel):
         return
     if AUTHORS and msg.author.id not in AUTHORS:
@@ -98,11 +135,13 @@ async def on_message(msg: discord.Message):
     if not role_ids:
         return
     due_at = msg.created_at.timestamp() + DELAY_SECONDS
-    db.execute(
+    cur = db.execute(
         "INSERT OR IGNORE INTO tracked (message_id, channel_id, guild_id, role_ids, due_at) VALUES (?,?,?,?,?)",
         (msg.id, msg.channel.id, msg.guild.id, json.dumps(role_ids), due_at),
     )
     db.commit()
+    if cur.rowcount == 0:  # already tracked
+        return
     names = ", ".join(ROLE_NAMES[r] for r in role_ids)
     print(f"tracking {msg.jump_url} [{names}], reminder due {time.strftime('%Y-%m-%d %H:%M', time.localtime(due_at))}")
 
@@ -131,7 +170,7 @@ async def remind(message_id: int, channel_id: int, role_ids: list[int]):
         return
 
     # Split into chunks that fit Discord's 2000-char limit.
-    header = "⏰ Reminder: please 👍 to acknowledge —"
+    header = "⏰ Reminder: please react to the message with 👍"
     chunks, line = [], header
     for uid in pending:
         mention = f" <@{uid}>"
@@ -140,6 +179,11 @@ async def remind(message_id: int, channel_id: int, role_ids: list[int]):
             line = "⏰ (cont.)"
         line += mention
     chunks.append(line)
+    if DRY_RUN:
+        print(f"[dry run] would remind {len(pending)} user(s): {msg.jump_url}")
+        for text in chunks:
+            print(f"  {text}")
+        return
     for text in chunks:
         await msg.reply(text, mention_author=False,
                         allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))

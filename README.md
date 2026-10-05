@@ -35,7 +35,8 @@ A Discord bot that follows up on role-tagged messages. When a message in one of 
    python3 reminder_bot.py
    ```
    To use a different config file, pass its path: `python3 reminder_bot.py config.3090.json`.
-   Keep it on a machine that stays on. Messages posted while the bot is offline aren't tracked.
+   Add `--dry-run` to track messages and print the reminders it would send, without posting anything.
+   Keep it on a machine that stays on. At startup it also picks up role-tagged messages from the last `delay_hours`, so a short outage is fine; anything older is missed.
 
 ## Testing
 
